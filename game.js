@@ -214,6 +214,57 @@ class ShootingStar {
   }
 }
 
+// ── ShieldPowerUp (Escudo) ────────────────────────────────────────────────────
+class ShieldPowerUp {
+  constructor(x, y) {
+    this.x      = x;
+    this.y      = y;
+    this.radius = 14;
+    this.ttl    = 12;     // desaparece si no se recoge
+    this.dead   = false;
+  }
+
+  update(dt) {
+    this.x = wrap(this.x, W);
+    this.y = wrap(this.y, H);
+    this.ttl -= dt;
+    if (this.ttl <= 0) this.dead = true;
+  }
+
+  draw() {
+    // Parpadeo en los últimos 3 segundos
+    if (this.ttl < 3 && Math.floor(this.ttl * 6) % 2 === 0) return;
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    // Hexágono de fondo
+    ctx.strokeStyle = '#4af';
+    ctx.fillStyle   = 'rgba(70,150,255,0.12)';
+    ctx.lineWidth   = 1.2;
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const px = Math.cos(a) * this.radius;
+      const py = Math.sin(a) * this.radius;
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // Escudo interior (escudito)
+    ctx.beginPath();
+    ctx.moveTo(0, -7);
+    ctx.lineTo( 6, -3);
+    ctx.lineTo( 6,  4);
+    ctx.lineTo( 0,  8);
+    ctx.lineTo(-6,  4);
+    ctx.lineTo(-6, -3);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(70,150,255,0.7)';
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
 // ── Ship ──────────────────────────────────────────────────────────────────────
 class Ship {
   constructor() { this.reset(); }
@@ -229,6 +280,7 @@ class Ship {
     this.invincible    = 3;
     this.shootCooldown = 0;
     this.speedBoost    = 0;
+    this.shield        = 0;
     this.dead          = false;
   }
 
@@ -237,6 +289,7 @@ class Ship {
     if (this.invincible    > 0) this.invincible    -= dt;
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
     if (this.speedBoost    > 0) this.speedBoost    -= dt;
+    if (this.shield        > 0) this.shield        -= dt;
 
     const ROT   = 3.5;   // rad/s
     const THRUST = (this.speedBoost > 0 ? 2 : 1) * 260;  // px/s²
@@ -298,6 +351,19 @@ class Ship {
     }
 
     ctx.restore();
+
+    // Escudo protector alrededor de la nave
+    if (this.shield > 0) {
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      const alpha = Math.min(this.shield / 2, 1);
+      ctx.strokeStyle = `rgba(80,160,255,${alpha.toFixed(2)})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, 22, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 }
 
@@ -334,7 +400,7 @@ class Particle {
 }
 
 // ── Estado del juego ──────────────────────────────────────────────────────────
-let ship, bullets, asteroids, particles, powerups, shootingStars;
+let ship, bullets, asteroids, particles, powerups, shootingStars, shieldPowerups;
 let score, lives, level;
 let state;      // 'playing' | 'dead' | 'gameover'
 let deadTimer;
@@ -358,6 +424,7 @@ function initGame() {
   particles = [];
   powerups  = [];
   shootingStars = [];
+  shieldPowerups = [];
   score  = 0;
   lives  = 3;
   level  = 1;
@@ -371,6 +438,7 @@ function nextLevel() {
   particles = [];
   powerups  = [];
   shootingStars = [];
+  shieldPowerups = [];
   ship.reset();
   spawnAsteroids(3 + level);
 }
@@ -407,8 +475,10 @@ function update(dt) {
     asteroids.forEach(a => a.update(dt));
     powerups.forEach(p => p.update(dt));
     powerups = powerups.filter(p => !p.dead);
-    shootingStars.forEach(s => s.update(dt));
+shootingStars.forEach(s => s.update(dt));
     shootingStars = shootingStars.filter(s => !s.dead);
+    shieldPowerups.forEach(s => s.update(dt));
+    shieldPowerups = shieldPowerups.filter(s => !s.dead);
     if (deadTimer <= 0) { state = 'playing'; ship.reset(); }
     return;
   }
@@ -424,11 +494,13 @@ function update(dt) {
   particles.forEach(p => p.update(dt));
   powerups.forEach(p => p.update(dt));
   shootingStars.forEach(s => s.update(dt));
+  shieldPowerups.forEach(s => s.update(dt));
 
   bullets   = bullets.filter(b => !b.dead);
   particles = particles.filter(p => !p.dead);
   powerups  = powerups.filter(p => !p.dead);
   shootingStars = shootingStars.filter(s => !s.dead);
+  shieldPowerups = shieldPowerups.filter(s => !s.dead);
 
   // Bala vs asteroide
   const newAsteroids = [];
@@ -446,6 +518,9 @@ function update(dt) {
         // 5% de probabilidad de soltar una estrella fugaz (máx. 1 activa)
         if (shootingStars.length === 0 && Math.random() < 0.05)
           shootingStars.push(new ShootingStar(a.x, a.y));
+        // 10% de probabilidad de soltar un powerup de Escudo (máx. 1 activo)
+        if (shieldPowerups.length === 0 && Math.random() < 0.10)
+          shieldPowerups.push(new ShieldPowerUp(a.x, a.y));
       }
     }
   }
@@ -470,15 +545,32 @@ function update(dt) {
   }
   shootingStars = shootingStars.filter(s => !s.dead);
 
+  // Nave vs powerup de Escudo (recoger Escudo)
+  for (const s of shieldPowerups) {
+    if (!s.dead && dist(ship, s) < ship.radius + s.radius) {
+      s.dead = true;
+      ship.shield = 6;
+    }
+  }
+  shieldPowerups = shieldPowerups.filter(s => !s.dead);
+
   // Nave vs asteroide
   if (ship.invincible <= 0) {
     for (const a of asteroids) {
       if (dist(ship, a) < ship.radius + a.radius * 0.82) {
-        killShip();
+        if (ship.shield > 0) {
+          // El escudo absorbe: destruye el asteroide (sin puntos) y se desgasta
+          a.dead = true;
+          explode(a.x, a.y, a.size * 5);
+          ship.shield -= 2;
+        } else {
+          killShip();
+        }
         break;
       }
     }
   }
+  asteroids = asteroids.filter(a => !a.dead);
 
   // Nivel completado
   if (asteroids.length === 0) nextLevel();
@@ -522,6 +614,15 @@ function drawHUD() {
     ctx.textAlign = 'center';
     ctx.fillText(`VELOCIDAD x2  ${ship.speedBoost.toFixed(1)}s`, W / 2, 48);
   }
+
+  // Indicador de Escudo activo
+  if (ship.shield > 0) {
+    ctx.fillStyle = '#4af';
+    ctx.font = '13px monospace';
+    ctx.textAlign = 'center';
+    const yOff = ship.speedBoost > 0 ? 66 : 48;
+    ctx.fillText(`ESCUDO  ${ship.shield.toFixed(1)}s`, W / 2, yOff);
+  }
 }
 
 function drawOverlay(title, sub) {
@@ -542,6 +643,7 @@ function draw() {
   asteroids.forEach(a => a.draw());
   powerups.forEach(p => p.draw());
   shootingStars.forEach(s => s.draw());
+  shieldPowerups.forEach(s => s.draw());
   bullets.forEach(b => b.draw());
   ship.draw();
 
