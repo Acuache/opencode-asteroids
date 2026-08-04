@@ -29,6 +29,20 @@ const dist  = (a, b)   => Math.hypot(a.x - b.x, a.y - b.y);
 const rand  = (min, max) => min + Math.random() * (max - min);
 const randInt = (min, max) => Math.floor(rand(min, max + 1));
 
+// ── Skins (solo color) ────────────────────────────────────────────────────────
+const SKINS = [
+  { name: 'CLÁSICA',  color: '#fff', thrust: 'rgba(255,130,0,0.85)' },
+  { name: 'ROJA',     color: '#f44', thrust: 'rgba(255,200,0,0.85)' },
+  { name: 'VERDE',    color: '#4f4', thrust: 'rgba(120,255,0,0.85)' },
+  { name: 'CIAN',     color: '#0ff', thrust: 'rgba(0,200,255,0.85)' },
+  { name: 'MAGENTA',  color: '#f4f', thrust: 'rgba(255,0,200,0.85)' },
+  { name: 'AMARILLA', color: '#ff0', thrust: 'rgba(255,180,0,0.85)' },
+  { name: 'NARANJA',  color: '#f80', thrust: 'rgba(255,80,0,0.85)' },
+  { name: 'PÚRPURA',  color: '#a6f', thrust: 'rgba(200,100,255,0.85)' },
+];
+let selectedSkin = 0;
+let menuTime = 0;
+
 // ── Bullet ────────────────────────────────────────────────────────────────────
 class Bullet {
   constructor(x, y, angle) {
@@ -274,7 +288,8 @@ class Ship {
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
-    ctx.strokeStyle = this.speedBoost > 0 ? '#0ff' : '#fff';
+    const skin = SKINS[selectedSkin];
+    ctx.strokeStyle = this.speedBoost > 0 ? '#0ff' : skin.color;
     ctx.lineWidth   = 1.5;
     ctx.lineJoin    = 'round';
 
@@ -293,7 +308,7 @@ class Ship {
       ctx.moveTo(-8, -4);
       ctx.lineTo(-8 - rand(6, 14), 0);
       ctx.lineTo(-8,  4);
-      ctx.strokeStyle = 'rgba(255, 130, 0, 0.85)';
+      ctx.strokeStyle = SKINS[selectedSkin].thrust;
       ctx.stroke();
     }
 
@@ -336,7 +351,7 @@ class Particle {
 // ── Estado del juego ──────────────────────────────────────────────────────────
 let ship, bullets, asteroids, particles, powerups, shootingStars;
 let score, lives, level;
-let state;      // 'playing' | 'dead' | 'gameover'
+let state;      // 'menu' | 'playing' | 'dead' | 'gameover'
 let deadTimer;
 
 function spawnAsteroids(count) {
@@ -363,6 +378,20 @@ function initGame() {
   level  = 1;
   state  = 'playing';
   spawnAsteroids(4);
+}
+
+function goToMenu() {
+  ship          = null;
+  bullets       = [];
+  asteroids     = [];
+  particles     = [];
+  powerups      = [];
+  shootingStars = [];
+  score  = 0;
+  lives  = 0;
+  level  = 0;
+  state  = 'menu';
+  menuTime = 0;
 }
 
 function nextLevel() {
@@ -393,8 +422,18 @@ function killShip() {
 
 // ── Update ────────────────────────────────────────────────────────────────────
 function update(dt) {
+  if (state === 'menu') {
+    menuTime += dt;
+    if (pressed('ArrowLeft'))
+      selectedSkin = (selectedSkin - 1 + SKINS.length) % SKINS.length;
+    if (pressed('ArrowRight'))
+      selectedSkin = (selectedSkin + 1) % SKINS.length;
+    if (pressed('Enter') || pressed('Space')) initGame();
+    return;
+  }
+
   if (state === 'gameover') {
-    if (pressed('Space')) initGame();
+    if (pressed('Space') || pressed('Enter')) goToMenu();
     particles.forEach(p => p.update(dt));
     particles = particles.filter(p => !p.dead);
     return;
@@ -489,7 +528,7 @@ function drawLifeIcon(x, y) {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(-Math.PI / 2);
-  ctx.strokeStyle = '#fff';
+  ctx.strokeStyle = SKINS[selectedSkin].color;
   ctx.lineWidth   = 1.2;
   ctx.lineJoin    = 'round';
   ctx.beginPath();
@@ -534,9 +573,71 @@ function drawOverlay(title, sub) {
   ctx.fillText(sub, W / 2, H / 2 + 22);
 }
 
+function drawShipPreview(cx, cy, angle, color) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(angle);
+  ctx.strokeStyle = color;
+  ctx.lineWidth   = 1.8;
+  ctx.lineJoin    = 'round';
+  ctx.beginPath();
+  ctx.moveTo( 20,  0);
+  ctx.lineTo(-12, -9);
+  ctx.lineTo( -7,  0);
+  ctx.lineTo(-12,  9);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawMenu() {
+  const skin = SKINS[selectedSkin];
+
+  // Título
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#fff';
+  ctx.font      = 'bold 52px monospace';
+  ctx.fillText('ASTEROIDS', W / 2, 130);
+
+  // Preview rotando lentamente
+  drawShipPreview(W / 2, H / 2 - 10, menuTime * 0.8, skin.color);
+
+  // Nombre de la skin
+  ctx.fillStyle = skin.color;
+  ctx.font      = 'bold 22px monospace';
+  ctx.fillText(skin.name, W / 2, H / 2 + 50);
+
+  // Flechas indicadoras
+  ctx.fillStyle = 'rgba(255,255,255,0.65)';
+  ctx.font      = 'bold 28px monospace';
+  ctx.fillText('◀',  W / 2 - 120, H / 2 - 2);
+  ctx.fillText('▶',  W / 2 + 120, H / 2 - 2);
+
+  // Puntos de navegación (un punto por skin)
+  const dotY = H / 2 + 80;
+  const totalW = (SKINS.length - 1) * 14;
+  for (let i = 0; i < SKINS.length; i++) {
+    const x = W / 2 - totalW / 2 + i * 14;
+    ctx.fillStyle = i === selectedSkin ? skin.color : 'rgba(255,255,255,0.3)';
+    ctx.beginPath();
+    ctx.arc(x, dotY, i === selectedSkin ? 4 : 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Hint inferior
+  ctx.fillStyle = 'rgba(255,255,255,0.65)';
+  ctx.font      = '15px monospace';
+  ctx.fillText('← →  CAMBIAR   ·   ENTER / ESPACIO  JUGAR', W / 2, H - 60);
+}
+
 function draw() {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, W, H);
+
+  if (state === 'menu') {
+    drawMenu();
+    return;
+  }
 
   particles.forEach(p => p.draw());
   asteroids.forEach(a => a.draw());
@@ -548,7 +649,7 @@ function draw() {
   drawHUD();
 
   if (state === 'gameover')
-    drawOverlay('GAME OVER', `PUNTAJE: ${score}   —   ESPACIO PARA REINICIAR`);
+    drawOverlay('GAME OVER', `PUNTAJE: ${score}   —   ESPACIO PARA VOLVER AL MENÚ`);
 }
 
 // ── Loop principal ────────────────────────────────────────────────────────────
@@ -562,5 +663,5 @@ function loop(ts) {
   requestAnimationFrame(loop);
 }
 
-initGame();
+goToMenu();
 requestAnimationFrame(loop);
